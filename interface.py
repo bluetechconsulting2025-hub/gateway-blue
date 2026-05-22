@@ -294,7 +294,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("Envio de Shipments")
     st.markdown("---")
-    st.caption("Versão corporativa • Desenvolvido por André")
+    st.caption("Versão corporativa • Desenvolvido por Blue Logística")
 
 
 # ============================
