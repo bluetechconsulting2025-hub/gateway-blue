@@ -150,10 +150,12 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     # Data de hoje como orderdate
     orderdate = date.today().strftime("%Y-%m-%d")
 
-    # Extrai linhas de produtos — formato: CódFab(6) CódProd Qtde ...
+    # Extrai linhas de produtos
+    # Formato real: CódFab(6)  CódProd  Descrição...  QtdeUN(ex: 24CX)  EAN
     orderdetails = []
     for linha in texto.splitlines():
-        m = re.match(r"^(\d{6})\s+(\d+)\s+(\d+)\s+", linha)
+        # Linha começa com 6 dígitos (CódFab) seguido de CódProd
+        m = re.match(r"^(\d{6})\s+(\d+)\s+.+?\s+(\d+)(CX|PC|UN|KG|FD|BD)\s+\d{8,}", linha)
         if m:
             sku = m.group(2)
             try:
