@@ -115,6 +115,11 @@ def xml_para_infor_shipment(xml_bytes: bytes):
     nNF_el = root.find(".//n:ide/n:nNF", ns)
     orderkey = nNF_el.text if nNF_el is not None else None
 
+    dhEmi_el = root.find(".//n:ide/n:dhEmi", ns)
+    orderdate = None
+    if dhEmi_el is not None and "T" in dhEmi_el.text:
+        orderdate = dhEmi_el.text.split("T")[0]
+
     orderdetails = []
     for det in root.findall(".//n:det", ns):
         cProd_el = det.find("n:prod/n:cProd", ns)
@@ -137,6 +142,7 @@ def xml_para_infor_shipment(xml_bytes: bytes):
     return {
         "storerkey": storerkey,
         "orderkey": orderkey,
+        "orderdate": orderdate,
         "orderdetails": orderdetails
     }
 
@@ -153,23 +159,32 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     # Data de hoje como orderdate
     orderdate = date.today().strftime("%Y-%m-%d")
 
+    # Mapeamento de UDM
+    UOM_MAP = {"CX": "CA", "PC": "PCT", "UN": "UN", "KG": "KG", "FD": "FD", "BD": "BD"}
+
     # Extrai linhas de produtos
     # Formato real: CódFab(6)  CódProd  Descrição...  QtdeUN(ex: 24CX)  EAN
     orderdetails = []
     for linha in texto.splitlines():
         # Linha começa com 6 dígitos (CódFab) seguido de CódProd
-        m = re.match(r"^(\d{6})\s+(\d+)\s+.+?\s+(\d+)(CX|PC|UN|KG|FD|BD)\s+\d{8,}", linha)
+        m = re.match(r"^(\d+)\s+(\d+)\s+.+?\s+(\d+)(CX|PC|UN|KG|FD|BD)(?:\s+\d{8,})?$", linha)
         if m:
             sku = m.group(2)
+            udm_pdf = m.group(4)
             try:
                 openqty = float(m.group(3))
             except Exception:
                 openqty = 0
-            orderdetails.append({"sku": sku, "openqty": openqty})
+            orderdetails.append({
+                "sku": sku,
+                "openqty": openqty,
+                "uom": UOM_MAP.get(udm_pdf, udm_pdf)
+            })
 
     return {
         "storerkey": "BLUE FOOD SERVI",
         "orderkey": orderkey,
+        "orderdate": orderdate,
         "orderdetails": orderdetails
     }
 
@@ -359,7 +374,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("Integração de Pedidos")
     st.markdown("---")
-    st.caption("Versão corporativa • Desenvolvido por Blue Logistica")
+    st.caption("Versão corporativa • Desenvolvido por Blue Tech Consulting")
 
 
 # ============================
@@ -388,7 +403,7 @@ arquivos = st.file_uploader(
 if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
     resultados = []
 
-    progress = st.progress(0, text="Iniciando Integrações...")
+    progress = st.progress(0, text="Iniciando integração...")
 
     for i, arquivo in enumerate(arquivos):
         progress.progress(
