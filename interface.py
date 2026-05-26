@@ -170,7 +170,6 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     return {
         "storerkey": "BLUE FOOD SERVI",
         "orderkey": orderkey,
-        "orderdate": orderdate,
         "orderdetails": orderdetails
     }
 
