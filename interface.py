@@ -367,7 +367,7 @@ with st.sidebar:
 
 st.title("Envio de XML para Shipments")
 
-plantas = ["RIO I", "RIO II"]
+plantas = list(WAREHOUSE_MAP.keys())
 planta = st.selectbox("Selecione a planta", plantas)
 
 if "uploader_key" not in st.session_state:
