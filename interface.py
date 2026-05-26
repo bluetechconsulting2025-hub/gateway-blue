@@ -115,11 +115,6 @@ def xml_para_infor_shipment(xml_bytes: bytes):
     nNF_el = root.find(".//n:ide/n:nNF", ns)
     orderkey = nNF_el.text if nNF_el is not None else None
 
-    dhEmi_el = root.find(".//n:ide/n:dhEmi", ns)
-    orderdate = None
-    if dhEmi_el is not None and "T" in dhEmi_el.text:
-        orderdate = dhEmi_el.text.split("T")[0]
-
     orderdetails = []
     for det in root.findall(".//n:det", ns):
         cProd_el = det.find("n:prod/n:cProd", ns)
