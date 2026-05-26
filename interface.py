@@ -163,21 +163,20 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     UOM_MAP = {"CX": "CA", "PC": "PCT", "UN": "UN", "KG": "KG", "FD": "FD", "BD": "BD"}
 
     # Extrai linhas de produtos
-    # Formato real: CódFab(6)  CódProd  Descrição...  QtdeUN(ex: 24CX)  EAN
+    # Aceita qty colado na unidade (17CX) ou separado por espaço (17 CX), com ou sem EAN no final
     orderdetails = []
     for linha in texto.splitlines():
-        # Linha começa com 6 dígitos (CódFab) seguido de CódProd
-        m = re.match(r"^(\d+)\s+(\d+)\s+.+?\s+(\d+)(CX|PC|UN|KG|FD|BD)(?:\s+\d{8,})?$", linha)
+        m = re.match(r"^(\d+)\s+(\d+)\s+.+?\s+(\d+)\s*(CX|PC|UN|KG|FD|BD)(?:\s+\d{8,})?$", linha)
         if m:
             sku = m.group(2)
             udm_pdf = m.group(4)
             try:
-                openqty = float(m.group(3))
+                uomopenqty = float(m.group(3))
             except Exception:
-                openqty = 0
+                uomopenqty = 0
             orderdetails.append({
                 "sku": sku,
-                "uomopenqty": openqty,
+                "uomopenqty": uomopenqty,
                 "uom": UOM_MAP.get(udm_pdf, udm_pdf)
             })
 
