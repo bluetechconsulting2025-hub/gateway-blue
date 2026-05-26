@@ -13,13 +13,14 @@ from datetime import date
 # ============================
 
 WAREHOUSE_MAP = {
-    "RIO I": "BLUELOGISTICA_TST_BLUELOGISTICA_TST_SCE_PRD_0_wmwhse2",
-    "RIO II": "BLUELOGISTICA_TST_BLUELOGISTICA_TST_SCE_PRD_0_wmwhse5"
+    "RIO I": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse1",
+    "RIO II": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2",
+    "RIO IV": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse4"
 }
 
-WAREHOUSE_CUSTOMERS = "BLUELOGISTICA_TST_ENTERPRISE"
+WAREHOUSE_CUSTOMERS = "BLUELOGISTICA_PRD_ENTERPRISE"
 
-BASE_URL = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_TST/WM/wmwebservice_rest"
+BASE_URL = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest"
 
 CNPJ_MAP = {
     "04214716000142": "c-trade comerci"
