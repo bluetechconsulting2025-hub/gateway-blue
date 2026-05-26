@@ -3,19 +3,23 @@ import uuid
 import requests
 import base64
 import xml.etree.ElementTree as ET
+import pdfplumber
+import re
+from io import BytesIO
+from datetime import date
 
 # ============================
 # CONFIGURAÇÕES DO SISTEMA
 # ============================
 
 WAREHOUSE_MAP = {
-    "RIO I": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse1",
-    "RIO II": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2"
+    "RIO I": "BLUELOGISTICA_TST_BLUELOGISTICA_TST_SCE_PRD_0_wmwhse2",
+    "RIO II": "BLUELOGISTICA_TST_BLUELOGISTICA_TST_SCE_PRD_0_wmwhse5"
 }
 
-WAREHOUSE_CUSTOMERS = "BLUELOGISTICA_PRD_ENTERPRISE"
+WAREHOUSE_CUSTOMERS = "BLUELOGISTICA_TST_ENTERPRISE"
 
-BASE_URL = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_PRD/WM/wmwebservice_rest"
+BASE_URL = "https://mingle-ionapi.inforcloudsuite.com/BLUELOGISTICA_TST/WM/wmwebservice_rest"
 
 CNPJ_MAP = {
     "04214716000142": "c-trade comerci"
@@ -26,7 +30,7 @@ CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 USERNAME = st.secrets["USERNAME"]
 PASSWORD = st.secrets["PASSWORD"]
 
-TOKEN_URL = "https://mingle-sso.inforcloudsuite.com:443/BLUELOGISTICA_PRD/as/token.oauth2"
+TOKEN_URL = "https://mingle-sso.inforcloudsuite.com:443/BLUELOGISTICA_TST/as/token.oauth2"
 
 
 # ============================
@@ -134,11 +138,68 @@ def xml_para_infor_shipment(xml_bytes: bytes):
             "openqty": openqty
         })
 
+def pdf_para_infor_shipment(pdf_bytes: bytes):
+    """Extrai dados do romaneio PDF para o endpoint /shipments."""
+    with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+        texto = "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+    # Extrai número do Roteiro
+    roteiro_match = re.search(r"Roteiro:\s*(\d+)", texto)
+    orderkey = roteiro_match.group(1) if roteiro_match else None
+
+    # Data de hoje como orderdate
+    orderdate = date.today().strftime("%Y-%m-%d")
+
+    # Extrai linhas de produtos — formato: CódFab(6) CódProd Qtde ...
+    orderdetails = []
+    for linha in texto.splitlines():
+        m = re.match(r"^(\d{6})\s+(\d+)\s+(\d+)\s+", linha)
+        if m:
+            sku = m.group(2)
+            try:
+                openqty = float(m.group(3))
+            except Exception:
+                openqty = 0
+            orderdetails.append({"sku": sku, "openqty": openqty})
+
     return {
-        "storerkey": storerkey,
+        "storerkey": "BLUE FOOD SERVI",
         "orderkey": orderkey,
         "orderdate": orderdate,
         "orderdetails": orderdetails
+    }
+
+
+def processar_pdf(planta: str, pdf_bytes: bytes, nome_arquivo: str):
+    """Processa um único PDF de romaneio: POST /shipments (sem /customers)."""
+    if planta not in WAREHOUSE_MAP:
+        return {"arquivo": nome_arquivo, "erro": f"Planta inválida: {planta}"}
+
+    warehouse_shipment = WAREHOUSE_MAP[planta]
+    shipment_json = pdf_para_infor_shipment(pdf_bytes)
+
+    token = gerar_token()
+    if not token:
+        return {"arquivo": nome_arquivo, "erro": "Falha ao gerar token no Infor"}
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    endpoint_shipments = f"{BASE_URL}/{warehouse_shipment}/shipments"
+    resp_shipments = requests.post(endpoint_shipments, headers=headers, json=shipment_json)
+
+    return {
+        "arquivo": nome_arquivo,
+        "planta": planta,
+        "tipo": "pdf",
+        "shipments": {
+            "endpoint": endpoint_shipments,
+            "payload_enviado": shipment_json,
+            "status": resp_shipments.status_code,
+            "resposta": resp_shipments.text
+        }
     }
 
 
@@ -294,7 +355,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("Envio de Shipments")
     st.markdown("---")
-    st.caption("Versão corporativa • Desenvolvido por Blue Logística")
+    st.caption("Versão corporativa • Desenvolvido por André")
 
 
 # ============================
@@ -310,8 +371,8 @@ if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = str(uuid.uuid4())
 
 arquivos = st.file_uploader(
-    "Envie os XMLs da NF-e (pode selecionar vários)",
-    type=["xml"],
+    "Envie os XMLs da NF-e ou PDFs de romaneio (pode selecionar vários)",
+    type=["xml", "pdf"],
     accept_multiple_files=True,
     key=st.session_state.uploader_key
 )
@@ -331,8 +392,11 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
             text=f"Processando {arquivo.name} ({i + 1}/{len(arquivos)})..."
         )
 
-        xml_bytes = arquivo.getvalue()
-        resultado = processar_arquivo(planta, xml_bytes, arquivo.name)
+        file_bytes = arquivo.getvalue()
+        if arquivo.name.lower().endswith(".pdf"):
+            resultado = processar_pdf(planta, file_bytes, arquivo.name)
+        else:
+            resultado = processar_arquivo(planta, file_bytes, arquivo.name)
         resultados.append(resultado)
 
     progress.progress(1.0, text="Todos os arquivos processados!")
@@ -358,23 +422,31 @@ if "resultados" in st.session_state:
             st.error(f"❌ **{res['arquivo']}** — {res['erro']}")
             continue
 
-        # Determina status geral
-        status_cust = res["customers"]["status"]
-        status_ship = res["shipments"]["status"]
-        sucesso = status_cust in (200, 201) and status_ship in (200, 201)
+        is_pdf = res.get("tipo") == "pdf"
+
+        if is_pdf:
+            status_ship = res["shipments"]["status"]
+            sucesso = status_ship in (200, 201)
+        else:
+            status_cust = res["customers"]["status"]
+            status_ship = res["shipments"]["status"]
+            sucesso = status_cust in (200, 201) and status_ship in (200, 201)
 
         icone = "✅" if sucesso else "⚠️"
         label = "Sucesso" if sucesso else "Atenção — verifique os detalhes"
 
         with st.expander(f"{icone} {res['arquivo']}  —  {label}", expanded=not sucesso):
-            st.markdown("#### 1. Customers")
-            col1, col2 = st.columns([1, 3])
-            col1.metric("Status HTTP", status_cust)
-            col2.markdown(f"**Endpoint:** `{res['customers']['endpoint']}`")
-            st.json(res["customers"]["payload_enviado"])
-            st.text_area("Resposta Infor (customers)", res["customers"]["resposta"], height=80, key=f"cust_{res['arquivo']}")
+            if not is_pdf:
+                st.markdown("#### 1. Customers")
+                col1, col2 = st.columns([1, 3])
+                col1.metric("Status HTTP", res["customers"]["status"])
+                col2.markdown(f"**Endpoint:** `{res['customers']['endpoint']}`")
+                st.json(res["customers"]["payload_enviado"])
+                st.text_area("Resposta Infor (customers)", res["customers"]["resposta"], height=80, key=f"cust_{res['arquivo']}")
+                st.markdown("#### 2. Shipments")
+            else:
+                st.markdown("#### Shipments (Romaneio PDF)")
 
-            st.markdown("#### 2. Shipments")
             col3, col4 = st.columns([1, 3])
             col3.metric("Status HTTP", status_ship)
             col4.markdown(f"**Endpoint:** `{res['shipments']['endpoint']}`")
