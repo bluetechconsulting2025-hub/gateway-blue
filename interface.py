@@ -31,7 +31,7 @@ CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 USERNAME = st.secrets["USERNAME"]
 PASSWORD = st.secrets["PASSWORD"]
 
-TOKEN_URL = "https://mingle-sso.inforcloudsuite.com:443/BLUELOGISTICA_TST/as/token.oauth2"
+TOKEN_URL = "https://mingle-sso.inforcloudsuite.com:443/BLUELOGISTICA_PRD/as/token.oauth2"
 
 
 # ============================
