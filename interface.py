@@ -15,7 +15,7 @@ from datetime import date
 WAREHOUSE_MAP = {
     "RIO I": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse1",
     "RIO II": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2",
-    "RIO IV": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse5"
+    "RIO IV": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse4"
 }
 
 WAREHOUSE_CUSTOMERS = "BLUELOGISTICA_PRD_ENTERPRISE"
@@ -31,7 +31,7 @@ CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 USERNAME = st.secrets["USERNAME"]
 PASSWORD = st.secrets["PASSWORD"]
 
-TOKEN_URL = "https://mingle-sso.inforcloudsuite.com:443/BLUELOGISTICA_PRD/as/token.oauth2"
+TOKEN_URL = "https://mingle-sso.inforcloudsuite.com:443/BLUELOGISTICA_TST/as/token.oauth2"
 
 
 # ============================
@@ -138,6 +138,14 @@ def xml_para_infor_shipment(xml_bytes: bytes):
             "sku": sku,
             "openqty": openqty
         })
+
+    return {
+        "storerkey": storerkey,
+        "orderkey": orderkey,
+        "orderdate": orderdate,
+        "orderdetails": orderdetails
+    }
+
 
 def pdf_para_infor_shipment(pdf_bytes: bytes):
     """Extrai dados do romaneio PDF para o endpoint /shipments."""
