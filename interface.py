@@ -15,7 +15,7 @@ from datetime import date
 WAREHOUSE_MAP = {
     "RIO I": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse1",
     "RIO II": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse2",
-    "RIO IV": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse5"
+    "RIO IV": "BLUELOGISTICA_PRD_BLUELOGISTICA_PRD_SCE_PRD_0_wmwhse4"
 }
 
 WAREHOUSE_CUSTOMERS = "BLUELOGISTICA_PRD_ENTERPRISE"
@@ -177,7 +177,7 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
                 openqty = 0
             orderdetails.append({
                 "sku": sku,
-                "openqty": openqty,
+                "uomopenqty": openqty,
                 "uom": UOM_MAP.get(udm_pdf, udm_pdf)
             })
 
@@ -372,7 +372,7 @@ with st.sidebar:
     st.image("logo.png", width=160)
     st.markdown("### **Gateway Infor WMS**")
     st.markdown("---")
-    st.markdown("Integração de Pedidos")
+    st.markdown("Integrações de Pedidos")
     st.markdown("---")
     st.caption("Versão corporativa • Desenvolvido por Blue Tech Consulting")
 
@@ -381,7 +381,7 @@ with st.sidebar:
 # FORMULÁRIO PRINCIPAL
 # ============================
 
-st.title("Integração de XML para Pedidos")
+st.title("Integração de XML para pedidos")
 
 plantas = list(WAREHOUSE_MAP.keys())
 planta = st.selectbox("Selecione a planta", plantas)
@@ -403,7 +403,7 @@ arquivos = st.file_uploader(
 if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
     resultados = []
 
-    progress = st.progress(0, text="Iniciando integração...")
+    progress = st.progress(0, text="Iniciando integrações...")
 
     for i, arquivo in enumerate(arquivos):
         progress.progress(
