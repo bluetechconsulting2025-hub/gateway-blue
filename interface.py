@@ -357,7 +357,7 @@ with st.sidebar:
     st.image("logo.png", width=160)
     st.markdown("### **Gateway Infor WMS**")
     st.markdown("---")
-    st.markdown("Envio de Shipments")
+    st.markdown("Integração de Pedidos")
     st.markdown("---")
     st.caption("Versão corporativa • Desenvolvido por Blue Logistica")
 
@@ -366,7 +366,7 @@ with st.sidebar:
 # FORMULÁRIO PRINCIPAL
 # ============================
 
-st.title("Envio de XML para Shipments")
+st.title("Integração de XML para Pedidos")
 
 plantas = list(WAREHOUSE_MAP.keys())
 planta = st.selectbox("Selecione a planta", plantas)
@@ -388,7 +388,7 @@ arquivos = st.file_uploader(
 if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
     resultados = []
 
-    progress = st.progress(0, text="Iniciando envios...")
+    progress = st.progress(0, text="Iniciando Integrações...")
 
     for i, arquivo in enumerate(arquivos):
         progress.progress(
