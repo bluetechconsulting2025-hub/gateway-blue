@@ -137,7 +137,6 @@ def xml_para_infor_shipment(xml_bytes: bytes):
     return {
         "storerkey": storerkey,
         "orderkey": orderkey,
-        "orderdate": orderdate,
         "orderdetails": orderdetails
     }
 
