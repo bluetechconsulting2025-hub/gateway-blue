@@ -574,34 +574,48 @@ if "resultados" in st.session_state:
         label = "Sucesso" if sucesso else "Atenção — verifique os detalhes"
 
         with st.expander(f"{icone} {res['arquivo']}  —  {label}", expanded=not sucesso):
+
+            orderkey_exib = res.get("shipments", {}).get("payload_enviado", {}).get("orderkey", "—")
+            st.markdown(f"**Pedido:** `{orderkey_exib}`")
+            st.markdown("<hr style='margin:8px 0 16px 0; border-color:#e0e0e0'>", unsafe_allow_html=True)
+
+            passos = []
             if not is_pdf:
-                st.markdown("#### 1. Customers")
-                col1, col2 = st.columns([1, 3])
-                col1.metric("Status HTTP", res["customers"]["status"])
-                col2.markdown(f"**Endpoint:** `{res['customers']['endpoint']}`")
-                st.json(res["customers"]["payload_enviado"])
-                st.text_area("Resposta Infor (customers)", res["customers"]["resposta"], height=80, key=f"cust_{res['arquivo']}")
-                st.markdown("#### 2. Shipments")
-            else:
-                st.markdown("#### Shipments (Romaneio PDF)")
-
-            col3, col4 = st.columns([1, 3])
-            col3.metric("Status HTTP", status_ship)
-            col4.markdown(f"**Endpoint:** `{res['shipments']['endpoint']}`")
-            st.json(res["shipments"]["payload_enviado"])
-            st.text_area("Resposta Infor (shipments)", res["shipments"]["resposta"], height=80, key=f"ship_{res['arquivo']}")
-
+                passos.append(("👤", "Cliente Final", res["customers"]["status"]))
+            passos.append(("📦", "Pedido", res["shipments"]["status"]))
             if "release" in res:
-                st.markdown("#### 🔓 Release")
-                col5, col6 = st.columns([1, 3])
-                col5.metric("Status HTTP", res["release"]["status"])
-                col6.markdown(f"**Endpoint:** `{res['release']['endpoint']}`")
-                st.text_area("Resposta Infor (release)", res["release"]["resposta"], height=80, key=f"release_{res['arquivo']}")
+                passos.append(("🔓", "Pedido Liberado", res["release"]["status"]))
 
-            # ── STATUS DO PEDIDO ─────────────────────────────────────────
+            step_parts = []
+            for i, (icon, nome, http_status) in enumerate(passos):
+                ok = http_status in (200, 201)
+                cor_bg = "#1a7a3c" if ok else "#c0392b"
+                status_txt = ("✓ " + str(http_status)) if ok else ("✗ " + str(http_status))
+                cor_status = "#1a7a3c" if ok else "#c0392b"
+                step_parts.append(
+                    f'<div style="display:flex;flex-direction:column;align-items:center;min-width:110px;">'
+                    f'<div style="background:{cor_bg};color:#fff;border-radius:50%;width:48px;height:48px;'
+                    f'display:flex;align-items:center;justify-content:center;font-size:22px;">{icon}</div>'
+                    f'<div style="font-size:13px;font-weight:600;margin-top:6px;text-align:center;color:#1a1a1a;">{nome}</div>'
+                    f'<div style="font-size:12px;color:{cor_status};font-weight:500;">{status_txt}</div>'
+                    f'</div>'
+                )
+                if i < len(passos) - 1:
+                    step_parts.append('<div style="flex:1;height:2px;background:#cccccc;margin-bottom:24px;min-width:20px;"></div>')
+
+            step_html = '<div style="display:flex;align-items:center;gap:0;margin-bottom:20px;">' + "".join(step_parts) + '</div>'
+            st.markdown(step_html, unsafe_allow_html=True)
+
+            if not is_pdf and res["customers"]["status"] not in (200, 201):
+                st.error(f"**Cliente Final** — Erro {res['customers']['status']}: {res['customers']['resposta']}")
+            if res["shipments"]["status"] not in (200, 201):
+                st.error(f"**Pedido** — Erro {res['shipments']['status']}: {res['shipments']['resposta']}")
+            if "release" in res and res["release"]["status"] not in (200, 201):
+                st.error(f"**Pedido Liberado** — Erro {res['release']['status']}: {res['release']['resposta']}")
+
             if "status_pedido" in res:
                 sp = res["status_pedido"]
-                st.markdown("#### 📋 Status do Pedido")
+                st.markdown("<hr style='margin:8px 0 12px 0; border-color:#e0e0e0'>", unsafe_allow_html=True)
                 if "erro" in sp:
                     st.warning(f"⚠️ Não foi possível consultar o status: {sp['erro']}")
                 elif sp["liberado"]:
