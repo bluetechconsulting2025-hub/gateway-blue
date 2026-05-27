@@ -188,6 +188,90 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     }
 
 
+STATUS_MAP = {
+    "00": "Ordem em branco",
+    "02": "Criado extern.",
+    "04": "Criado intern.",
+    "06": "Não alocou",
+    "08": "Convertido",
+    "09": "Não inic.",
+    "-1": "Desc.",
+    "10": "Agrupado",
+    "11": "Volume pré-alocado",
+    "12": "Pré-alocado",
+    "13": "Liberado p/ planej. de armaz.",
+    "14": "Volume alocado",
+    "15": "Volume aloc./volume sep.",
+    "16": "Volume alocado/volume exp.",
+    "17": "Alocado",
+    "18": "Substituído",
+    "-2": "SemSincronismo",
+    "22": "Volume liberado",
+    "25": "Volume liberado/volume sep.",
+    "27": "Volume liberado/volume exp.",
+    "29": "Liberado",
+    "51": "Em separação",
+    "52": "Vol. sep.",
+    "53": "Vol. separado/volume exp.",
+    "55": "Separação concluída",
+    "57": "Separado/volume exp.",
+    "61": "Em emb.",
+    "68": "Emb. concluída",
+    "75": "Preparado",
+    "78": "Manifestado",
+    "82": "Em carreg.",
+    "88": "Carregado",
+    "92": "Volume expedido",
+    "94": "Fechar produção",
+    "95": "Expedição concluída",
+    "96": "Entrega aceita",
+    "97": "Entrega recusada",
+    "98": "Cancelado extern.",
+    "99": "Cancelado intern.",
+}
+
+
+def consultar_status_pedido(warehouse: str, orderkey: str, headers: dict):
+    """GET /shipments/{orderkey} e retorna resumo de status."""
+    endpoint = f"{BASE_URL}/{warehouse}/shipments/{orderkey}"
+    resp = requests.get(endpoint, headers=headers)
+
+    if resp.status_code not in (200, 201):
+        return {"liberado": False, "erro": f"Não foi possível consultar o pedido (HTTP {resp.status_code})", "linhas_pendentes": []}
+
+    try:
+        data = resp.json()
+    except Exception:
+        return {"liberado": False, "erro": "Resposta inválida do Infor", "linhas_pendentes": []}
+
+    status_header = str(data.get("status", ""))
+
+    if status_header == "29":
+        return {"liberado": True, "status_header": status_header, "status_desc": STATUS_MAP.get(status_header, status_header), "linhas_pendentes": []}
+
+    # Coleta linhas que não estão no status 29
+    linhas_pendentes = []
+    for det in data.get("orderdetails", []):
+        st = str(det.get("status", ""))
+        if st != "29":
+            linhas_pendentes.append({
+                "sku": det.get("sku"),
+                "status": st,
+                "status_desc": STATUS_MAP.get(st, st),
+                "uomopenqty": det.get("uomopenqty"),
+                "openqty": det.get("openqty"),
+                "uom": det.get("uom"),
+                "linha": det.get("orderlinenumber"),
+            })
+
+    return {
+        "liberado": False,
+        "status_header": status_header,
+        "status_desc": STATUS_MAP.get(status_header, status_header),
+        "linhas_pendentes": linhas_pendentes
+    }
+
+
 def processar_pdf(planta: str, pdf_bytes: bytes, nome_arquivo: str):
     """Processa um único PDF de romaneio: POST /shipments (sem /customers)."""
     if planta not in WAREHOUSE_MAP:
@@ -226,12 +310,16 @@ def processar_pdf(planta: str, pdf_bytes: bytes, nome_arquivo: str):
         "resposta": resp_release_pdf.text
     }
 
+    # ── GET /status ──────────────────────────────────────────────────────
+    status_pedido_pdf = consultar_status_pedido(warehouse_shipment, orderkey_pdf, headers)
+
     return {
         "arquivo": nome_arquivo,
         "planta": planta,
         "tipo": "pdf",
         "shipments": resultado_shipment_pdf,
-        "release": resultado_release_pdf
+        "release": resultado_release_pdf,
+        "status_pedido": status_pedido_pdf
     }
 
 
@@ -290,12 +378,16 @@ def processar_arquivo(planta: str, xml_bytes: bytes, nome_arquivo: str):
         "resposta": resp_release.text
     }
 
+    # ── GET /status ──────────────────────────────────────────────────────
+    status_pedido = consultar_status_pedido(warehouse_shipment, orderkey, headers)
+
     return {
         "arquivo": nome_arquivo,
         "planta": planta,
         "customers": resultado_customer,
         "shipments": resultado_shipment,
-        "release": resultado_release
+        "release": resultado_release,
+        "status_pedido": status_pedido
     }
 
 
@@ -505,6 +597,32 @@ if "resultados" in st.session_state:
                 col5.metric("Status HTTP", res["release"]["status"])
                 col6.markdown(f"**Endpoint:** `{res['release']['endpoint']}`")
                 st.text_area("Resposta Infor (release)", res["release"]["resposta"], height=80, key=f"release_{res['arquivo']}")
+
+            # ── STATUS DO PEDIDO ─────────────────────────────────────────
+            if "status_pedido" in res:
+                sp = res["status_pedido"]
+                st.markdown("#### 📋 Status do Pedido")
+                if "erro" in sp:
+                    st.warning(f"⚠️ Não foi possível consultar o status: {sp['erro']}")
+                elif sp["liberado"]:
+                    st.success("✅ Pedido totalmente liberado no Infor!")
+                else:
+                    status_label = f"{sp.get('status_header', '?')} — {sp.get('status_desc', '')}"
+                    st.warning(f"⚠️ Pedido não está totalmente liberado (status atual: **{status_label}**)")
+                    linhas = sp.get("linhas_pendentes", [])
+                    if linhas:
+                        st.markdown("**Linhas pendentes:**")
+                        dados = [{
+                            "Linha": l["linha"],
+                            "SKU": l["sku"],
+                            "Status": f"{l['status']} — {l['status_desc']}",
+                            "Qtd Aberta (UOM)": l["uomopenqty"],
+                            "Qtd Aberta": l["openqty"],
+                            "UOM": l["uom"],
+                        } for l in linhas]
+                        st.dataframe(dados, use_container_width=True)
+                    else:
+                        st.info("Nenhuma linha pendente encontrada nos detalhes.")
 
 
 # ============================
