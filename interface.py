@@ -115,6 +115,11 @@ def xml_para_infor_shipment(xml_bytes: bytes):
     nNF_el = root.find(".//n:ide/n:nNF", ns)
     orderkey = nNF_el.text if nNF_el is not None else None
 
+    dhEmi_el = root.find(".//n:ide/n:dhEmi", ns)
+    orderdate = None
+    if dhEmi_el is not None and "T" in dhEmi_el.text:
+        orderdate = dhEmi_el.text.split("T")[0]
+
     orderdetails = []
     for det in root.findall(".//n:det", ns):
         cProd_el = det.find("n:prod/n:cProd", ns)
@@ -137,6 +142,7 @@ def xml_para_infor_shipment(xml_bytes: bytes):
     return {
         "storerkey": storerkey,
         "orderkey": orderkey,
+        "orderdate": orderdate,
         "orderdetails": orderdetails
     }
 
@@ -149,6 +155,9 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     # Extrai número do Roteiro
     roteiro_match = re.search(r"Roteiro:\s*(\d+)", texto)
     orderkey = roteiro_match.group(1) if roteiro_match else None
+
+    # Data de hoje como orderdate
+    orderdate = date.today().strftime("%Y-%m-%d")
 
     # Mapeamento de UDM
     UOM_MAP = {"CX": "CA", "PC": "PCT", "UN": "UN", "KG": "KG", "FD": "FD", "BD": "BD"}
@@ -174,6 +183,7 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     return {
         "storerkey": "BLUE FOOD SERVI",
         "orderkey": orderkey,
+        "orderdate": orderdate,
         "orderdetails": orderdetails
     }
 
@@ -198,16 +208,30 @@ def processar_pdf(planta: str, pdf_bytes: bytes, nome_arquivo: str):
     endpoint_shipments = f"{BASE_URL}/{warehouse_shipment}/shipments"
     resp_shipments = requests.post(endpoint_shipments, headers=headers, json=shipment_json)
 
+    resultado_shipment_pdf = {
+        "endpoint": endpoint_shipments,
+        "payload_enviado": shipment_json,
+        "status": resp_shipments.status_code,
+        "resposta": resp_shipments.text
+    }
+
+    # ── POST /release ────────────────────────────────────────────────────
+    orderkey_pdf = shipment_json.get("orderkey")
+    endpoint_release_pdf = f"{BASE_URL}/{warehouse_shipment}/shipments/{orderkey_pdf}/release"
+    resp_release_pdf = requests.post(endpoint_release_pdf, headers=headers)
+
+    resultado_release_pdf = {
+        "endpoint": endpoint_release_pdf,
+        "status": resp_release_pdf.status_code,
+        "resposta": resp_release_pdf.text
+    }
+
     return {
         "arquivo": nome_arquivo,
         "planta": planta,
         "tipo": "pdf",
-        "shipments": {
-            "endpoint": endpoint_shipments,
-            "payload_enviado": shipment_json,
-            "status": resp_shipments.status_code,
-            "resposta": resp_shipments.text
-        }
+        "shipments": resultado_shipment_pdf,
+        "release": resultado_release_pdf
     }
 
 
@@ -255,11 +279,23 @@ def processar_arquivo(planta: str, xml_bytes: bytes, nome_arquivo: str):
         "resposta": resp_shipments.text
     }
 
+    # ── 3. POST /release ────────────────────────────────────────────────
+    orderkey = shipment_json.get("orderkey")
+    endpoint_release = f"{BASE_URL}/{warehouse_shipment}/shipments/{orderkey}/release"
+    resp_release = requests.post(endpoint_release, headers=headers)
+
+    resultado_release = {
+        "endpoint": endpoint_release,
+        "status": resp_release.status_code,
+        "resposta": resp_release.text
+    }
+
     return {
         "arquivo": nome_arquivo,
         "planta": planta,
         "customers": resultado_customer,
-        "shipments": resultado_shipment
+        "shipments": resultado_shipment,
+        "release": resultado_release
     }
 
 
@@ -434,11 +470,13 @@ if "resultados" in st.session_state:
 
         if is_pdf:
             status_ship = res["shipments"]["status"]
-            sucesso = status_ship in (200, 201)
+            status_release = res.get("release", {}).get("status", 0)
+            sucesso = status_ship in (200, 201) and status_release in (200, 201)
         else:
             status_cust = res["customers"]["status"]
             status_ship = res["shipments"]["status"]
-            sucesso = status_cust in (200, 201) and status_ship in (200, 201)
+            status_release = res.get("release", {}).get("status", 0)
+            sucesso = status_cust in (200, 201) and status_ship in (200, 201) and status_release in (200, 201)
 
         icone = "✅" if sucesso else "⚠️"
         label = "Sucesso" if sucesso else "Atenção — verifique os detalhes"
@@ -460,6 +498,13 @@ if "resultados" in st.session_state:
             col4.markdown(f"**Endpoint:** `{res['shipments']['endpoint']}`")
             st.json(res["shipments"]["payload_enviado"])
             st.text_area("Resposta Infor (shipments)", res["shipments"]["resposta"], height=80, key=f"ship_{res['arquivo']}")
+
+            if "release" in res:
+                st.markdown("#### 🔓 Release")
+                col5, col6 = st.columns([1, 3])
+                col5.metric("Status HTTP", res["release"]["status"])
+                col6.markdown(f"**Endpoint:** `{res['release']['endpoint']}`")
+                st.text_area("Resposta Infor (release)", res["release"]["resposta"], height=80, key=f"release_{res['arquivo']}")
 
 
 # ============================
