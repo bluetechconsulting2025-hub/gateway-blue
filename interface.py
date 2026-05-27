@@ -115,11 +115,6 @@ def xml_para_infor_shipment(xml_bytes: bytes):
     nNF_el = root.find(".//n:ide/n:nNF", ns)
     orderkey = nNF_el.text if nNF_el is not None else None
 
-    dhEmi_el = root.find(".//n:ide/n:dhEmi", ns)
-    orderdate = None
-    if dhEmi_el is not None and "T" in dhEmi_el.text:
-        orderdate = dhEmi_el.text.split("T")[0]
-
     orderdetails = []
     for det in root.findall(".//n:det", ns):
         cProd_el = det.find("n:prod/n:cProd", ns)
@@ -142,7 +137,6 @@ def xml_para_infor_shipment(xml_bytes: bytes):
     return {
         "storerkey": storerkey,
         "orderkey": orderkey,
-        "orderdate": orderdate,
         "orderdetails": orderdetails
     }
 
@@ -155,9 +149,6 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     # Extrai número do Roteiro
     roteiro_match = re.search(r"Roteiro:\s*(\d+)", texto)
     orderkey = roteiro_match.group(1) if roteiro_match else None
-
-    # Data de hoje como orderdate
-    orderdate = date.today().strftime("%Y-%m-%d")
 
     # Mapeamento de UDM
     UOM_MAP = {"CX": "CA", "PC": "PCT", "UN": "UN", "KG": "KG", "FD": "FD", "BD": "BD"}
@@ -183,7 +174,6 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     return {
         "storerkey": "BLUE FOOD SERVI",
         "orderkey": orderkey,
-        "orderdate": orderdate,
         "orderdetails": orderdetails
     }
 
