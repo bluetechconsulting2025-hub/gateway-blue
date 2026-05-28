@@ -142,7 +142,135 @@ def xml_para_infor_shipment(xml_bytes: bytes):
     return {
         "storerkey": storerkey,
         "orderkey": orderkey,
+        "orderdate": orderdate,
         "orderdetails": orderdetails
+    }
+
+
+def xml_extrair_carrier(xml_bytes: bytes):
+    """Extrai dados da transportadora do XML para POST /carriers."""
+    ns = {"n": "http://www.portalfiscal.inf.br/nfe"}
+    root = ET.fromstring(xml_bytes)
+    transp = root.find(".//n:transporta", ns)
+    if transp is None:
+        return None
+    cnpj_el = transp.find("n:CNPJ", ns)
+    nome_el = transp.find("n:xNome", ns)
+    end_el  = transp.find("n:xEnder", ns)
+    mun_el  = transp.find("n:xMun", ns)
+    uf_el   = transp.find("n:UF", ns)
+    cnpj = cnpj_el.text if cnpj_el is not None else None
+    if not cnpj:
+        return None
+    return {
+        "storerkey": cnpj,
+        "company": nome_el.text if nome_el is not None else None,
+        "address1": end_el.text if end_el is not None else None,
+        "city": mun_el.text if mun_el is not None else None,
+        "type": "3"
+    }
+
+
+def xml_extrair_emit_cnpj(xml_bytes: bytes) -> str:
+    """Retorna o CNPJ do emitente do XML."""
+    ns = {"n": "http://www.portalfiscal.inf.br/nfe"}
+    root = ET.fromstring(xml_bytes)
+    el = root.find(".//n:emit/n:CNPJ", ns)
+    return el.text if el is not None else ""
+
+
+def xml_extrair_carrier_cnpj(xml_bytes: bytes) -> str:
+    """Retorna o CNPJ da transportadora do XML."""
+    ns = {"n": "http://www.portalfiscal.inf.br/nfe"}
+    root = ET.fromstring(xml_bytes)
+    el = root.find(".//n:transporta/n:CNPJ", ns)
+    return el.text if el is not None else "SEM_TRANSPORTADORA"
+
+
+def processar_grupo_ctrade(planta: str, xmls: list, token: str):
+    """
+    Recebe lista de (nome_arquivo, xml_bytes) todos de c-trade com a mesma transportadora.
+    POST /carriers → POST /shipments (agrupado, sem orderkey) → POST /release → GET status
+    """
+    warehouse_shipment = WAREHOUSE_MAP[planta]
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    # Dados da transportadora (do primeiro XML do grupo)
+    carrier_json = xml_extrair_carrier(xmls[0][1])
+    carrier_cnpj = carrier_json["storerkey"] if carrier_json else "desconhecida"
+
+    # ── 1. POST /carriers ────────────────────────────────────────────────
+    resultado_carrier = {"status": None, "resposta": None, "endpoint": None}
+    if carrier_json:
+        endpoint_carriers = f"{BASE_URL}/{warehouse_shipment}/carriers"
+        resp_carrier = requests.post(endpoint_carriers, headers=headers, json=carrier_json)
+        resultado_carrier = {
+            "endpoint": endpoint_carriers,
+            "payload_enviado": carrier_json,
+            "status": resp_carrier.status_code,
+            "resposta": resp_carrier.text
+        }
+
+    # ── Monta orderdetails agrupando todos os XMLs ───────────────────────
+    storerkey = CNPJ_MAP.get("04214716000142", "04214716000142")
+    todos_details = []
+    nfs_incluidas = []
+    for nome, xml_bytes in xmls:
+        shipment = xml_para_infor_shipment(xml_bytes)
+        todos_details.extend(shipment.get("orderdetails", []))
+        nfs_incluidas.append(shipment.get("orderkey", nome))
+
+    shipment_json = {
+        "storerkey": storerkey,
+        "carrierkey": carrier_cnpj,
+        "orderdetails": todos_details
+    }
+
+    # ── 2. POST /shipments ───────────────────────────────────────────────
+    endpoint_shipments = f"{BASE_URL}/{warehouse_shipment}/shipments"
+    resp_shipments = requests.post(endpoint_shipments, headers=headers, json=shipment_json)
+
+    resultado_shipment = {
+        "endpoint": endpoint_shipments,
+        "payload_enviado": shipment_json,
+        "status": resp_shipments.status_code,
+        "resposta": resp_shipments.text
+    }
+
+    # Pega o orderkey gerado pelo Infor no response
+    orderkey_gerado = None
+    if resp_shipments.status_code in (200, 201):
+        try:
+            orderkey_gerado = resp_shipments.json().get("orderkey")
+        except Exception:
+            pass
+
+    # ── 3. POST /release ─────────────────────────────────────────────────
+    resultado_release = {"status": None, "resposta": None, "endpoint": None}
+    status_pedido = {}
+    if orderkey_gerado:
+        endpoint_release = f"{BASE_URL}/{warehouse_shipment}/shipments/{orderkey_gerado}/release"
+        resp_release = requests.post(endpoint_release, headers=headers)
+        resultado_release = {
+            "endpoint": endpoint_release,
+            "status": resp_release.status_code,
+            "resposta": resp_release.text
+        }
+        status_pedido = consultar_status_pedido(warehouse_shipment, orderkey_gerado, headers)
+
+    return {
+        "arquivo": f"C-Trade — Transportadora {carrier_cnpj} ({len(xmls)} NF{'s' if len(xmls) > 1 else ''})",
+        "planta": planta,
+        "tipo": "ctrade",
+        "nfs_incluidas": nfs_incluidas,
+        "orderkey_gerado": orderkey_gerado,
+        "carrier": resultado_carrier,
+        "shipments": resultado_shipment,
+        "release": resultado_release,
+        "status_pedido": status_pedido
     }
 
 
@@ -182,6 +310,7 @@ def pdf_para_infor_shipment(pdf_bytes: bytes):
     return {
         "storerkey": "BLUE FOOD SERVI",
         "orderkey": orderkey,
+        "orderdate": orderdate,
         "orderdetails": orderdetails
     }
 
@@ -519,6 +648,7 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
     resultados = []
 
     progress = st.progress(0, text="Iniciando integrações...")
+    ctrade_grupos = {}
 
     for i, arquivo in enumerate(arquivos):
         progress.progress(
@@ -529,9 +659,22 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
         file_bytes = arquivo.getvalue()
         if arquivo.name.lower().endswith(".pdf"):
             resultado = processar_pdf(planta, file_bytes, arquivo.name)
+            resultados.append(resultado)
         else:
-            resultado = processar_arquivo(planta, file_bytes, arquivo.name)
-        resultados.append(resultado)
+            emit_cnpj = xml_extrair_emit_cnpj(file_bytes)
+            if emit_cnpj == "04214716000142":
+                carrier_cnpj = xml_extrair_carrier_cnpj(file_bytes)
+                ctrade_grupos.setdefault(carrier_cnpj, []).append((arquivo.name, file_bytes))
+            else:
+                resultado = processar_arquivo(planta, file_bytes, arquivo.name)
+                resultados.append(resultado)
+
+    # Processa grupos c-trade por transportadora
+    if ctrade_grupos:
+        token_ctrade = gerar_token()
+        for carrier_cnpj, xmls_grupo in ctrade_grupos.items():
+            resultado_grupo = processar_grupo_ctrade(planta, xmls_grupo, token_ctrade)
+            resultados.append(resultado_grupo)
 
     progress.progress(1.0, text="Todos os arquivos processados!")
 
@@ -556,16 +699,16 @@ if "resultados" in st.session_state:
             st.error(f"❌ **{res['arquivo']}** — {res['erro']}")
             continue
 
-        is_pdf = res.get("tipo") == "pdf"
+        is_pdf    = res.get("tipo") == "pdf"
+        is_ctrade = res.get("tipo") == "ctrade"
 
-        if is_pdf:
-            status_ship = res["shipments"]["status"]
-            status_release = res.get("release", {}).get("status", 0)
+        status_ship    = res["shipments"]["status"] or 0
+        status_release = res.get("release", {}).get("status") or 0
+
+        if is_pdf or is_ctrade:
             sucesso = status_ship in (200, 201) and status_release in (200, 201)
         else:
             status_cust = res["customers"]["status"]
-            status_ship = res["shipments"]["status"]
-            status_release = res.get("release", {}).get("status", 0)
             sucesso = status_cust in (200, 201) and status_ship in (200, 201) and status_release in (200, 201)
 
         icone = "✅" if sucesso else "⚠️"
@@ -573,15 +716,24 @@ if "resultados" in st.session_state:
 
         with st.expander(f"{icone} {res['arquivo']}  —  {label}", expanded=not sucesso):
 
-            orderkey_exib = res.get("shipments", {}).get("payload_enviado", {}).get("orderkey", "—")
-            st.markdown(f"**Pedido:** `{orderkey_exib}`")
+            if is_ctrade:
+                orderkey_exib = res.get("orderkey_gerado") or "(aguardando criação)"
+                st.markdown(f"**Pedido gerado:** `{orderkey_exib}`")
+                nfs = res.get("nfs_incluidas", [])
+                if nfs:
+                    st.markdown("**NFs incluídas:** " + " • ".join(str(n) for n in nfs))
+            else:
+                orderkey_exib = res.get("shipments", {}).get("payload_enviado", {}).get("orderkey", "—")
+                st.markdown(f"**Pedido:** `{orderkey_exib}`")
             st.markdown("<hr style='margin:8px 0 16px 0; border-color:#e0e0e0'>", unsafe_allow_html=True)
 
             passos = []
-            if not is_pdf:
+            if is_ctrade:
+                passos.append(("🚛", "Transportadora", res["carrier"]["status"] or 0))
+            elif not is_pdf:
                 passos.append(("👤", "Cliente Final", res["customers"]["status"]))
-            passos.append(("📦", "Pedido", res["shipments"]["status"]))
-            if "release" in res:
+            passos.append(("📦", "Pedido", res["shipments"]["status"] or 0))
+            if res.get("release", {}).get("status"):
                 passos.append(("🔓", "Pedido Liberado", res["release"]["status"]))
 
             step_parts = []
@@ -604,11 +756,13 @@ if "resultados" in st.session_state:
             step_html = '<div style="display:flex;align-items:center;gap:0;margin-bottom:20px;">' + "".join(step_parts) + '</div>'
             st.markdown(step_html, unsafe_allow_html=True)
 
-            if not is_pdf and res["customers"]["status"] not in (200, 201):
+            if is_ctrade and res["carrier"].get("status") not in (200, 201, None):
+                st.error(f"**Transportadora** — Erro {res['carrier']['status']}: {res['carrier']['resposta']}")
+            elif not is_pdf and not is_ctrade and res["customers"]["status"] not in (200, 201):
                 st.error(f"**Cliente Final** — Erro {res['customers']['status']}: {res['customers']['resposta']}")
-            if res["shipments"]["status"] not in (200, 201):
+            if (res["shipments"]["status"] or 0) not in (200, 201):
                 st.error(f"**Pedido** — Erro {res['shipments']['status']}: {res['shipments']['resposta']}")
-            if "release" in res and res["release"]["status"] not in (200, 201):
+            if res.get("release", {}).get("status") not in (200, 201, None):
                 st.error(f"**Pedido Liberado** — Erro {res['release']['status']}: {res['release']['resposta']}")
 
             if "status_pedido" in res:
