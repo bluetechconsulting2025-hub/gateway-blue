@@ -202,7 +202,21 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
     carrier_json = xml_extrair_carrier(xmls[0][1])
     carrier_cnpj = carrier_json["storerkey"] if carrier_json else "desconhecida"
 
-    # ── 1. POST /carriers ────────────────────────────────────────────────
+    # ── 1. POST /customers (um por XML, destinatários únicos) ──────────────
+    resultado_customers = []
+    for nome, xml_bytes in xmls:
+        customer_json = xml_para_infor_customer(xml_bytes)
+        endpoint_customers = f"{BASE_URL}/{WAREHOUSE_CUSTOMERS}/customers"
+        resp_cust = requests.post(endpoint_customers, headers=headers, json=customer_json)
+        resultado_customers.append({
+            "nf": nome,
+            "endpoint": endpoint_customers,
+            "payload_enviado": customer_json,
+            "status": resp_cust.status_code,
+            "resposta": resp_cust.text
+        })
+
+    # ── 2. POST /carriers ────────────────────────────────────────────────
     resultado_carrier = {"status": None, "resposta": None, "endpoint": None}
     if carrier_json:
         endpoint_carriers = f"{BASE_URL}/{warehouse_shipment}/carriers"
@@ -271,6 +285,7 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
         "tipo": "ctrade",
         "nfs_incluidas": nfs_incluidas,
         "orderkey_gerado": orderkey_gerado,
+        "customers": resultado_customers,
         "carrier": resultado_carrier,
         "shipments": resultado_shipment,
         "release": resultado_release,
@@ -668,7 +683,12 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
             emit_cnpj = xml_extrair_emit_cnpj(file_bytes)
             if emit_cnpj == "04214716000142":
                 carrier_cnpj = xml_extrair_carrier_cnpj(file_bytes)
-                ctrade_grupos.setdefault(carrier_cnpj, []).append((arquivo.name, file_bytes))
+                if carrier_cnpj == "SEM_TRANSPORTADORA":
+                    # Sem transportadora: processa individual sem carriercode
+                    resultado = processar_arquivo(planta, file_bytes, arquivo.name)
+                    resultados.append(resultado)
+                else:
+                    ctrade_grupos.setdefault(carrier_cnpj, []).append((arquivo.name, file_bytes))
             else:
                 resultado = processar_arquivo(planta, file_bytes, arquivo.name)
                 resultados.append(resultado)
@@ -733,6 +753,10 @@ if "resultados" in st.session_state:
 
             passos = []
             if is_ctrade:
+                # Customers: sucesso se todos deram 200/201
+                custs = res.get("customers", [])
+                cust_status = 200 if custs and all(c["status"] in (200, 201) for c in custs) else (custs[0]["status"] if custs else 0)
+                passos.append(("👤", "Clientes Finais", cust_status))
                 passos.append(("🚛", "Transportadora", res["carrier"]["status"] or 0))
             elif not is_pdf:
                 passos.append(("👤", "Cliente Final", res["customers"]["status"]))
@@ -760,8 +784,12 @@ if "resultados" in st.session_state:
             step_html = '<div style="display:flex;align-items:center;gap:0;margin-bottom:20px;">' + "".join(step_parts) + '</div>'
             st.markdown(step_html, unsafe_allow_html=True)
 
-            if is_ctrade and res["carrier"].get("status") not in (200, 201, None):
-                st.error(f"**Transportadora** — Erro {res['carrier']['status']}: {res['carrier']['resposta']}")
+            if is_ctrade:
+                for c in res.get("customers", []):
+                    if c["status"] not in (200, 201):
+                        st.error(f"**Cliente Final ({c['nf']})** — Erro {c['status']}: {c['resposta']}")
+                if res["carrier"].get("status") not in (200, 201, None):
+                    st.error(f"**Transportadora** — Erro {res['carrier']['status']}: {res['carrier']['resposta']}")
             elif not is_pdf and not is_ctrade and res["customers"]["status"] not in (200, 201):
                 st.error(f"**Cliente Final** — Erro {res['customers']['status']}: {res['customers']['resposta']}")
             if (res["shipments"]["status"] or 0) not in (200, 201):
