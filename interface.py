@@ -220,12 +220,16 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
     nfs_incluidas = []
     for nome, xml_bytes in xmls:
         shipment = xml_para_infor_shipment(xml_bytes)
-        todos_details.extend(shipment.get("orderdetails", []))
+        for det in shipment.get("orderdetails", []):
+            todos_details.append({
+                "sku": det.get("sku"),
+                "openqty": det.get("openqty")
+            })
         nfs_incluidas.append(shipment.get("orderkey", nome))
 
     shipment_json = {
         "storerkey": storerkey,
-        "carrierkey": carrier_cnpj,
+        "carriercode": carrier_cnpj,
         "orderdetails": todos_details
     }
 
@@ -250,7 +254,7 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
 
     # ── 3. POST /release ─────────────────────────────────────────────────
     resultado_release = {"status": None, "resposta": None, "endpoint": None}
-    status_pedido = {}
+    status_pedido = {"erro": "Pedido não foi criado, release não executado."}
     if orderkey_gerado:
         endpoint_release = f"{BASE_URL}/{warehouse_shipment}/shipments/{orderkey_gerado}/release"
         resp_release = requests.post(endpoint_release, headers=headers)
