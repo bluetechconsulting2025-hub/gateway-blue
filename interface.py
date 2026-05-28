@@ -93,11 +93,11 @@ def xml_para_infor_customer(xml_bytes: bytes):
     city = xMun_el.text if xMun_el is not None else None
 
     return {
-        "storerkey": storerkey[:50] if storerkey else storerkey,
-        "company": company[:40] if company else company,
-        "address1": address1[:60] if address1 else address1,
+        "storerkey": storerkey[:30] if storerkey else storerkey,
+        "company": company[:30] if company else company,
+        "address1": address1[:35] if address1 else address1,
         "zip": zip_code[:10] if zip_code else zip_code,
-        "address2": address2[:30] if address2 else address2,
+        "address2": address2[:35] if address2 else address2,
         "city": city[:30] if city else city,
         "type": "2"
     }
