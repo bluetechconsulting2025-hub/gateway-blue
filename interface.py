@@ -154,12 +154,24 @@ def postar_load(warehouse: str, carrier_cnpj: str, proprietario: str,
     proprietario: nome do dono da mercadoria (route, truncado a 10 chars)
     carrier_cnpj: usado para montar o externalid
     """
-    hoje = date.today().isoformat()           # "2026-05-29"
-    externalid = f"{carrier_cnpj}_{hoje}"     # ex: "12345678000199_2026-05-29"
-    route = proprietario[:10]                 # truncado a 10 chars
+
+    hoje = date.today().strftime("%Y%m%d")
+
+    # REMOVE caracteres inválidos e garante no máximo 20 chars
+    carrier_limpo = re.sub(r"[^0-9A-Za-z]", "", carrier_cnpj or "LOAD")
+
+    # externalid máximo 20 chars
+    # Exemplo final: 12345678000120260529
+    externalid = f"{carrier_limpo[:12]}{hoje}"[:20]
+
+    # route máximo 10 chars
+    route = (proprietario or "LOAD")[:10]
 
     load_order_details = [
-        {"shipmentorderid": p["orderkey"], "storer": p["storerkey"]}
+        {
+            "shipmentorderid": p["orderkey"],
+            "storer": p["storerkey"]
+        }
         for p in pedidos
     ]
 
@@ -175,7 +187,13 @@ def postar_load(warehouse: str, carrier_cnpj: str, proprietario: str,
     }
 
     endpoint = f"{BASE_URL}/{warehouse}/loads"
-    resp = requests.post(endpoint, headers=headers, json=payload)
+
+    resp = requests.post(
+        endpoint,
+        headers=headers,
+        json=payload
+    )
+
     return {
         "endpoint": endpoint,
         "payload_enviado": payload,
