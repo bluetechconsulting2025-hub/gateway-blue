@@ -242,13 +242,16 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
 
     # ── Monta orderdetails agrupando todos os XMLs ─────────────────────
     storerkey = CNPJ_MAP.get("04214716000142", "04214716000142")
-    todos_details = []
+    sku_totais = {}   # acumula openqty por SKU
     nfs_incluidas = []
     for nome, xml_bytes in xmls:
         shipment = xml_para_infor_shipment(xml_bytes)
         for det in shipment.get("orderdetails", []):
-            todos_details.append({"sku": det["sku"], "openqty": det["openqty"]})
+            sku = det["sku"]
+            sku_totais[sku] = sku_totais.get(sku, 0) + det["openqty"]
         nfs_incluidas.append(shipment.get("orderkey", nome))
+
+    todos_details = [{"sku": sku, "openqty": qty} for sku, qty in sku_totais.items()]
 
     shipment_json = {
         "storerkey":    storerkey,
