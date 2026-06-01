@@ -137,7 +137,6 @@ def xml_extrair_carrier_cnpj(xml_bytes: bytes) -> str:
     return el.text if el is not None else "SEM_TRANSPORTADORA"
 
 def xml_extrair_emit_nome(xml_bytes: bytes) -> str:
-    """Retorna o nome/razão social do emitente do XML."""
     ns = {"n": "http://www.portalfiscal.inf.br/nfe"}
     root = ET.fromstring(xml_bytes)
     el = root.find(".//n:emit/n:xNome", ns)
@@ -148,23 +147,9 @@ def xml_extrair_emit_nome(xml_bytes: bytes) -> str:
 # ============================
 def postar_load(warehouse: str, carrier_cnpj: str, proprietario: str,
                 pedidos: list, headers: dict):
-    """
-    POST /{warehouse}/loads
-    pedidos: lista de {"orderkey": str, "storerkey": str}
-    proprietario: nome do dono da mercadoria (route, truncado a 10 chars)
-    carrier_cnpj: usado para montar o externalid
-    """
-
     hoje = date.today().strftime("%Y%m%d")
-
-    # REMOVE caracteres inválidos e garante no máximo 20 chars
     carrier_limpo = re.sub(r"[^0-9A-Za-z]", "", carrier_cnpj or "LOAD")
-
-    # externalid máximo 20 chars
-    # Exemplo final: 12345678000120260529
     externalid = f"{carrier_limpo[:12]}{hoje}"[:20]
-
-    # route máximo 10 chars
     route = (proprietario or "LOAD")[:10]
 
     load_order_details = [
@@ -187,12 +172,7 @@ def postar_load(warehouse: str, carrier_cnpj: str, proprietario: str,
     }
 
     endpoint = f"{BASE_URL}/{warehouse}/loads"
-
-    resp = requests.post(
-        endpoint,
-        headers=headers,
-        json=payload
-    )
+    resp = requests.post(endpoint, headers=headers, json=payload)
 
     return {
         "endpoint": endpoint,
@@ -242,7 +222,7 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
 
     # ── Monta orderdetails agrupando todos os XMLs ─────────────────────
     storerkey = CNPJ_MAP.get("04214716000142", "04214716000142")
-    sku_totais = {}   # acumula openqty por SKU
+    sku_totais = {}
     nfs_incluidas = []
     for nome, xml_bytes in xmls:
         shipment = xml_para_infor_shipment(xml_bytes)
@@ -256,7 +236,7 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
     shipment_json = {
         "storerkey":    storerkey,
         "carriercode":  carrier_cnpj,
-        "notes":        ", ".join(str(nf) for nf in nfs_incluidas),  # ← NFs no notes
+        "notes":        ", ".join(str(nf) for nf in nfs_incluidas),
         "orderdetails": todos_details
     }
 
@@ -452,6 +432,9 @@ def processar_arquivo(planta: str, xml_bytes: bytes, nome_arquivo: str):
 
     # ── 2. POST /shipments ─────────────────────────────────────────────
     shipment_json["consigneekey"] = customer_json["storerkey"]
+    carrier_cnpj = xml_extrair_carrier_cnpj(xml_bytes)
+    if carrier_cnpj != "SEM_TRANSPORTADORA":
+        shipment_json["carriercode"] = carrier_cnpj
     endpoint_shipments = f"{BASE_URL}/{warehouse_shipment}/shipments"
     resp_shipments = requests.post(endpoint_shipments, headers=headers, json=shipment_json)
     resultado_shipment = {
@@ -473,9 +456,7 @@ def processar_arquivo(planta: str, xml_bytes: bytes, nome_arquivo: str):
 
     status_pedido = consultar_status_pedido(warehouse_shipment, orderkey, headers)
 
-    # Extrai carrier e proprietario para uso no load
-    carrier_cnpj = xml_extrair_carrier_cnpj(xml_bytes)
-    emit_nome    = xml_extrair_emit_nome(xml_bytes)
+    emit_nome = xml_extrair_emit_nome(xml_bytes)
 
     return {
         "arquivo":       nome_arquivo,
@@ -597,7 +578,7 @@ arquivos = st.file_uploader(
 if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
     resultados  = []
     progress    = st.progress(0, text="Iniciando integrações...")
-    ctrade_grupos = {}  # {carrier_cnpj: [(nome, xml_bytes), ...]}
+    ctrade_grupos = {}
 
     # ── Primeira passagem: PDFs e XMLs não-ctrade ──────────────────────
     for i, arquivo in enumerate(arquivos):
@@ -633,11 +614,8 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
     progress.progress(1.0, text="Todos os arquivos processados!")
 
     # ══════════════════════════════════════════════════════════════════
-    # LOADS — agrupa por (warehouse × carrier_cnpj × proprietario)
-    # e faz um único POST /loads por grupo
+    # LOADS
     # ══════════════════════════════════════════════════════════════════
-    # Estrutura: load_groups[(warehouse, carrier_cnpj, proprietario)] =
-    #   {"pedidos": [{"orderkey":…, "storerkey":…}], "proprietario": str}
     load_groups = {}
 
     for res in resultados:
@@ -647,14 +625,13 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
         warehouse = res.get("warehouse")
         tipo      = res.get("tipo")
 
-        # Só inclui pedidos cujo shipment foi criado com sucesso
         ship_status = res.get("shipments", {}).get("status") or 0
         if ship_status not in (200, 201):
             continue
 
         if tipo == "ctrade":
             carrier_cnpj  = res.get("carrier_cnpj", "desconhecida")
-            proprietario  = "c-trade"          # route (será truncado a 10 na função)
+            proprietario  = "c-trade"
             orderkey      = res.get("orderkey_gerado")
             storerkey     = res.get("storerkey")
             if orderkey:
@@ -663,7 +640,6 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
                 load_groups[key]["pedidos"].append({"orderkey": orderkey, "storerkey": storerkey})
 
         elif tipo == "pdf":
-            # PDF: sem transportadora identificada — usa "SEM_CARRIER" como chave
             carrier_cnpj  = "SEM_CARRIER"
             proprietario  = "BLUE FOOD SERVI"
             orderkey      = res.get("orderkey")
@@ -683,7 +659,6 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
                 load_groups.setdefault(key, {"pedidos": [], "proprietario": proprietario})
                 load_groups[key]["pedidos"].append({"orderkey": orderkey, "storerkey": storerkey})
 
-    # Gera token único para os loads
     resultados_loads = []
     if load_groups:
         token_load = gerar_token()
