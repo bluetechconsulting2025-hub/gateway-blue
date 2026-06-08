@@ -211,7 +211,7 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
     # ── 2. POST /carriers ──────────────────────────────────────────────
     resultado_carrier = {"status": None, "resposta": None, "endpoint": None}
     if carrier_json:
-        endpoint_carriers = f"{BASE_URL}/{warehouse_shipment}/carriers"
+        endpoint_carriers = f"{BASE_URL}/{WAREHOUSE_CUSTOMERS}/carriers"
         resp_carrier = requests.post(endpoint_carriers, headers=headers, json=carrier_json)
         resultado_carrier = {
             "endpoint":        endpoint_carriers,
@@ -234,11 +234,13 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
     todos_details = [{"sku": sku, "openqty": qty} for sku, qty in sku_totais.items()]
 
     shipment_json = {
-        "storerkey":    storerkey,
-        "carriercode":  carrier_cnpj,
-        "notes":        ", ".join(str(nf) for nf in nfs_incluidas),
-        "orderdetails": todos_details
-    }
+    "storerkey": storerkey,
+    "notes": ", ".join(str(nf) for nf in nfs_incluidas),
+    "orderdetails": todos_details
+}
+
+if carrier_json:
+    shipment_json["carriercode"] = carrier_json["storerkey"]
 
     # ── 3. POST /shipments ─────────────────────────────────────────────
     endpoint_shipments = f"{BASE_URL}/{warehouse_shipment}/shipments"
