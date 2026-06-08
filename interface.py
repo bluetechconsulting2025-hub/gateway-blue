@@ -558,7 +558,7 @@ with st.sidebar:
 # ============================
 # FORMULÁRIO PRINCIPAL
 # ============================
-st.title("Integração de XML para pedidos")
+st.title("Integração de pedidos - XML E ROMANEIOS")
 plantas = list(WAREHOUSE_MAP.keys())
 planta  = st.selectbox("Selecione a planta", plantas)
 
