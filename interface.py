@@ -233,7 +233,7 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
 
     todos_details = [{"sku": sku, "openqty": qty} for sku, qty in sku_totais.items()]
 
-        shipment_json = {
+    shipment_json = {
         "storerkey": storerkey,
         "notes": ", ".join(str(nf) for nf in nfs_incluidas),
         "orderdetails": todos_details
