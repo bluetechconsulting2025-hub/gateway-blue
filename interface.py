@@ -270,7 +270,7 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
         }
         status_pedido = consultar_status_pedido(warehouse_shipment, orderkey_gerado, headers)
 
-    return {
+    resultado = {
         "arquivo":         f"C-Trade — Transportadora {carrier_cnpj} ({len(xmls)} NF{'s' if len(xmls) > 1 else ''})",
         "planta":          planta,
         "tipo":            "ctrade",
@@ -285,6 +285,20 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
         "release":         resultado_release,
         "status_pedido":   status_pedido
     }
+
+    # ── DEBUG ──────────────────────────────────────────────────────────
+    st.warning("🐛 DEBUG — resultado c-trade (remover após diagnóstico)")
+    st.write({
+        "carrier_cnpj":          carrier_cnpj,
+        "storerkey":             storerkey,
+        "carrier_json":          carrier_json,
+        "shipment_payload":      shipment_json,
+        "shipments_status":      resultado_shipment["status"],
+        "shipments_resposta":    resultado_shipment["resposta"],
+    })
+    # ── FIM DEBUG ──────────────────────────────────────────────────────
+
+    return resultado
 
 def pdf_para_infor_shipment(pdf_bytes: bytes):
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
