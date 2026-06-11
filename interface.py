@@ -136,6 +136,13 @@ def xml_extrair_carrier_cnpj(xml_bytes: bytes) -> str:
     el = root.find(".//n:transporta/n:CNPJ", ns)
     return el.text if el is not None else "SEM_TRANSPORTADORA"
 
+
+def xml_extrair_carrier_nome(xml_bytes: bytes) -> str:
+    ns = {"n": "http://www.portalfiscal.inf.br/nfe"}
+    root = ET.fromstring(xml_bytes)
+    el = root.find(".//n:transporta/n:xNome", ns)
+    return el.text if el is not None else ""
+
 def xml_extrair_emit_nome(xml_bytes: bytes) -> str:
     ns = {"n": "http://www.portalfiscal.inf.br/nfe"}
     root = ET.fromstring(xml_bytes)
@@ -145,12 +152,12 @@ def xml_extrair_emit_nome(xml_bytes: bytes) -> str:
 # ============================
 # LOADS
 # ============================
-def postar_load(warehouse: str, carrier_cnpj: str, proprietario: str,
+def postar_load(warehouse: str, carrier_cnpj: str, carrier_nome: str, proprietario: str,
                 pedidos: list, headers: dict):
     hoje = date.today().strftime("%Y%m%d")
     carrier_limpo = re.sub(r"[^0-9A-Za-z]", "", carrier_cnpj or "LOAD")
     externalid = f"{carrier_limpo[:12]}{hoje}"[:20]
-    route = (proprietario or "LOAD")[:10]
+    route = (carrier_nome or proprietario or "LOAD")[:10]
 
     load_order_details = [
         {
@@ -193,6 +200,7 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
 
     carrier_json = xml_extrair_carrier(xmls[0][1])
     carrier_cnpj = carrier_json["storerkey"] if carrier_json else "desconhecida"
+    carrier_nome = carrier_json["company"] if carrier_json else ""
 
     # ── 1. POST /customers ─────────────────────────────────────────────
     resultado_customers = []
@@ -280,6 +288,7 @@ def processar_grupo_ctrade(planta: str, xmls: list, token: str):
         "orderkey_gerado": orderkey_gerado,
         "storerkey":       storerkey,
         "carrier_cnpj":    carrier_cnpj,
+        "carrier_nome":    carrier_nome,
         "warehouse":       warehouse_shipment,
         "customers":       resultado_customers,
         "carrier":         resultado_carrier,
@@ -473,6 +482,7 @@ def processar_arquivo(planta: str, xml_bytes: bytes, nome_arquivo: str):
     status_pedido = consultar_status_pedido(warehouse_shipment, orderkey, headers)
 
     emit_nome = xml_extrair_emit_nome(xml_bytes)
+    carrier_nome = xml_extrair_carrier_nome(xml_bytes)
 
     return {
         "arquivo":       nome_arquivo,
@@ -483,6 +493,7 @@ def processar_arquivo(planta: str, xml_bytes: bytes, nome_arquivo: str):
         "warehouse":     warehouse_shipment,
         "carrier_cnpj":  carrier_cnpj,
         "emit_nome":     emit_nome,
+        "carrier_nome":  carrier_nome,
         "customers":     resultado_customer,
         "shipments":     resultado_shipment,
         "release":       resultado_release,
@@ -647,32 +658,35 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
 
         if tipo == "ctrade":
             carrier_cnpj  = res.get("carrier_cnpj", "desconhecida")
+            carrier_nome  = res.get("carrier_nome", "")
             proprietario  = "c-trade"
             orderkey      = res.get("orderkey_gerado")
             storerkey     = res.get("storerkey")
             if orderkey:
                 key = (warehouse, carrier_cnpj, proprietario)
-                load_groups.setdefault(key, {"pedidos": [], "proprietario": proprietario})
+                load_groups.setdefault(key, {"pedidos": [], "proprietario": proprietario, "carrier_nome": carrier_nome if "carrier_nome" in locals() else ""})
                 load_groups[key]["pedidos"].append({"orderkey": orderkey, "storerkey": storerkey})
 
         elif tipo == "pdf":
             carrier_cnpj  = "SEM_CARRIER"
+            carrier_nome  = "BLUE FOOD SERVI"
             proprietario  = "BLUE FOOD SERVI"
             orderkey      = res.get("orderkey")
             storerkey     = res.get("storerkey", "BLUE FOOD SERVI")
             if orderkey:
                 key = (warehouse, carrier_cnpj, proprietario)
-                load_groups.setdefault(key, {"pedidos": [], "proprietario": proprietario})
+                load_groups.setdefault(key, {"pedidos": [], "proprietario": proprietario, "carrier_nome": carrier_nome if "carrier_nome" in locals() else ""})
                 load_groups[key]["pedidos"].append({"orderkey": orderkey, "storerkey": storerkey})
 
         else:  # xml individual
             carrier_cnpj  = res.get("carrier_cnpj", "SEM_CARRIER")
+            carrier_nome  = res.get("carrier_nome", "")
             proprietario  = res.get("emit_nome", "") or res.get("storerkey", "")
             orderkey      = res.get("orderkey")
             storerkey     = res.get("storerkey")
             if orderkey:
                 key = (warehouse, carrier_cnpj, proprietario)
-                load_groups.setdefault(key, {"pedidos": [], "proprietario": proprietario})
+                load_groups.setdefault(key, {"pedidos": [], "proprietario": proprietario, "carrier_nome": carrier_nome if "carrier_nome" in locals() else ""})
                 load_groups[key]["pedidos"].append({"orderkey": orderkey, "storerkey": storerkey})
 
     resultados_loads = []
@@ -686,6 +700,7 @@ if arquivos and st.button(f"Enviar {len(arquivos)} arquivo(s) para o Infor"):
             res_load = postar_load(
                 warehouse    = warehouse,
                 carrier_cnpj = carrier_cnpj,
+                carrier_nome = grupo.get("carrier_nome", ""),
                 proprietario = proprietario,
                 pedidos      = grupo["pedidos"],
                 headers      = headers_load
