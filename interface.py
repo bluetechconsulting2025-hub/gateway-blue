@@ -150,7 +150,7 @@ def postar_load(warehouse: str, carrier_cnpj: str, proprietario: str,
     hoje = date.today().strftime("%Y%m%d")
     carrier_limpo = re.sub(r"[^0-9A-Za-z]", "", carrier_cnpj or "LOAD")
     externalid = f"{carrier_limpo[:12]}{hoje}"[:20]
-    route = (carrier_nome or proprietario or "LOAD")[:10]
+    route = (proprietario or "LOAD")[:10]
 
     load_order_details = [
         {
